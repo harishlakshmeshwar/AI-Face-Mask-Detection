@@ -17,6 +17,7 @@
     canvas: document.getElementById("canvas"),
     stream: document.getElementById("stream"),
     liveBadge: document.getElementById("live-badge"),
+    previewBadge: document.getElementById("preview-badge"),
     statFaces: document.getElementById("stat-faces"),
     statMask: document.getElementById("stat-mask"),
     statNomask: document.getElementById("stat-nomask"),
@@ -43,7 +44,8 @@
     noMask: 0,
     log: [],
     lastLogTime: 0,
-    busy: false
+    busy: false,
+    previewOnly: false
   };
 
   var DETECT_INTERVAL_MS = 160;
@@ -254,7 +256,15 @@
   }
 
   function runBrowserDetect() {
-    if (!state.running || state.busy) {
+    if (!state.running) {
+      return;
+    }
+    if (state.previewOnly) {
+      // Camera preview works without a model; just keep the loop alive.
+      scheduleBrowserLoop();
+      return;
+    }
+    if (state.busy) {
       scheduleBrowserLoop();
       return;
     }
@@ -370,6 +380,10 @@
           );
           return;
         }
+        if (data.model_loaded === false) {
+          state.previewOnly = true;
+          els.previewBadge.hidden = false;
+        }
         renderCounts(data.counts, data.latency_ms);
         renderFaceList(data.faces || []);
         if (data.counts && data.counts.faces > 0) {
@@ -405,13 +419,16 @@
     resetSession();
 
     refreshHealth().then(function (health) {
-      if (!health || health.model !== "loaded") {
-        stopDetection();
-        setOverlay(
-          "<strong>Model missing.</strong> Train one with <code>python -m training.train --data-dir dataset</code> and reload.",
-          true
-        );
-        return;
+      state.previewOnly = !health || health.model !== "loaded";
+      if (state.previewOnly) {
+        els.previewBadge.hidden = false;
+        els.stageNote.textContent =
+          "Model not trained yet - showing camera preview only, no classifications. " +
+          "Train one with: python -m training.train --data-dir dataset, then reload this page.";
+      } else {
+        els.previewBadge.hidden = true;
+        els.stageNote.textContent =
+          "Frames are analysed in your browser (or by the OpenCV server camera) and classified one face at a time.";
       }
       var starter = state.mode === "server" ? startServer() : startBrowser();
       starter.catch(function () { stopDetection(); });
@@ -426,9 +443,13 @@
       state.loopTimer = null;
     }
     els.liveBadge.hidden = true;
+    els.previewBadge.hidden = true;
+    state.previewOnly = false;
     els.btnStart.disabled = false;
     els.btnStop.disabled = true;
     els.modeSelect.disabled = false;
+    els.stageNote.textContent =
+      "Frames are analysed in your browser (or by the OpenCV server camera) and classified one face at a time.";
 
     if (state.mode === "server") {
       stopServer();

@@ -1,6 +1,6 @@
 # Model Card: Face-Mask CNN Classifier
 
-Last updated: pending first training run.
+Last updated: first training run recorded (local, CPU).
 
 ## Model details
 
@@ -33,14 +33,19 @@ Last updated: pending first training run.
 
 - **Expected layout:** `dataset/with_mask/` and `dataset/without_mask/`
   containing JPG/PNG/BMP/WebP images.
-- **Provenance:** user-supplied. This repository does not bundle a dataset.
-  Suggested public sources are listed in the README; each user must verify
-  the license of whatever dataset they download.
-- **Size / class balance:** pending (whatever the user provides; the trainer
-  prints a per-class image count at startup).
-- **Split:** deterministic per-class train/validation split
-  (`--val-split`, default 20%, `--seed`, default 42). Paths are checked for
-  overlap so no image appears in both sets.
+- **Provenance (run recorded here):** Kaggle *"Face Mask Detection"*
+  (`vijaykumar1799/face-mask-detection`, mirrored on Hugging Face as
+  `Kai1014/facemask-kaggle`), **ODbL-1.0**. 1,120 images after preparation
+  (560 `with_mask` / 560 `without_mask`), balanced.
+- **Preparation:** images were 128 px scene photos, so
+  `training/prepare_dataset.py` face-cropped each one (Haar detection with
+  20 % margin; 466/1,120 images had no detectable face and used a centre
+  crop fallback). The `mask_weared_incorrect` class was excluded
+  (binary task).
+- **Split:** deterministic per-class train/validation split (20 %, seed 42),
+  overlap-checked: 896 train / 224 validation.
+- Datasets are not redistributed by this repository (`dataset/` is
+  git-ignored); see `THIRD_PARTY_NOTICES.md` for attribution.
 
 ## Evaluation methodology
 
@@ -52,9 +57,14 @@ Last updated: pending first training run.
 - Additional offline evaluation against any folder-based set:
   `python -m training.evaluate --data-dir <folder>` writes
   `models/evaluation_report.json`.
-- **Measured results:** pending — no training run has been recorded in this
-  repository yet. Do not treat any accuracy figure as known until a real
-  training run produces `models/metrics.json`.
+- **Measured results (this run, `models/metrics.json`):**
+  - validation accuracy **0.857**, validation loss **0.337**
+  - `with_mask`: precision 0.857, recall 0.857, F1 0.857
+  - `without_mask`: precision 0.857, recall 0.857, F1 0.857
+  - confusion matrix (rows = true, cols = predicted): `[[96, 16], [16, 96]]`
+  - command: `python -m training.train --data-dir dataset --img-size 96
+    --batch-size 32 --epochs 8 --lr 0.001 --val-split 0.2 --seed 42`
+  - 8 epochs on CPU, best weights restored from epoch 6.
 
 ## Hyperparameters (defaults)
 

@@ -58,6 +58,26 @@ licensed artifacts that users must obtain themselves. See the README
 ("Dataset preparation") for suggested sources and check each source's
 license before use.
 
+### Dataset used for the local training run (not redistributed)
+
+The model trained for local development used:
+
+- **Name:** Face Mask Detection (Kaggle mirror `Kai1014/facemask-kaggle` on
+  Hugging Face; original: `vijaykumar1799/face-mask-detection` on Kaggle)
+- **URLs:**
+  - https://huggingface.co/datasets/Kai1014/facemask-kaggle
+  - https://www.kaggle.com/datasets/vijaykumar1799/face-mask-detection
+- **License:** ODbL-1.0 (Open Database License), as declared on both dataset
+  pages
+- **Use here:** downloaded locally, face-cropped via
+  `training/prepare_dataset.py`, and used to train `models/mask_classifier.keras`.
+  The images themselves are **not** committed to this repository
+  (`dataset/` is git-ignored), so no database redistribution occurs.
+  Anyone redistributing the images must comply with ODbL terms; this notice
+  is the required attribution for the sources above.
+- **Third class:** the source also contains a `mask_weared_incorrect`
+  class; it is excluded because this project is a binary classifier.
+
 ## 5. Model weights
 
 No pretrained model weights are committed. The `models/` directory

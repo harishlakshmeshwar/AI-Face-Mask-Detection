@@ -149,19 +149,41 @@ class DetectionSession:
 
     def _worker(self) -> None:
         interval = 1.0 / max(config.CAMERA_FPS, 1.0)
+        failures = 0
+        max_failures = 8  # ~4 s of failed reads before giving up
         while not self._stop_event.is_set():
             started = time.time()
             ok, frame = self.camera.read()
             if not ok or frame is None:
+                failures += 1
                 self.camera_error = (
-                    "Camera stopped delivering frames. It may have been "
-                    "disconnected or claimed by another application."
+                    "Camera stopped delivering frames. It may have been disconnected "
+                    "or claimed by another application (browser tab, Teams, Zoom)."
                 )
+                if failures >= max_failures:
+                    self.camera_error = (
+                        "Camera lost: no frames received for several seconds. "
+                        "Close other applications using the webcam and restart detection."
+                    )
+                    self.camera_active = False
+                    self.camera.stop()
+                    self._stop_event.set()
+                    break
                 time.sleep(0.5)
                 continue
+            failures = 0
 
             if not self.classifier.is_loaded:
-                self._latest_jpeg = encode_jpeg(frame)
+                # Preview-only: serve the raw frame so the operator can still
+                # verify the camera, but never invent detections.
+                with self._lock:
+                    self._latest_jpeg = encode_jpeg(frame)
+                    self._last_detections = {
+                        "faces": [],
+                        "counts": {"faces": 0, "with_mask": 0, "without_mask": 0},
+                        "latency_ms": 0.0,
+                        "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
+                    }
                 time.sleep(interval)
                 continue
 
@@ -252,6 +274,7 @@ def create_app(
             },
             "camera_source": str(config.CAMERA_SOURCE),
             "camera_active": session.camera_active,
+            "camera_error": session.camera_error,
         }
         return jsonify(payload)
 

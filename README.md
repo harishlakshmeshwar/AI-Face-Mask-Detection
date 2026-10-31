@@ -191,6 +191,18 @@ dataset/
 - [FFHQ](https://github.com/NVlabs/ffhq-dataset) — high-quality faces you
   can pair with masked images; licensed separately.
 
+**Already have scene images instead of face crops?** Many public datasets
+ship whole frames (a face somewhere in a 128-180 px image). This app
+classifies detected face crops, so convert them first:
+
+```bat
+python -m training.prepare_dataset --source C:\path\to\raw_dataset --dest dataset
+```
+
+The script detects the face in each image, keeps a 20 % margin crop, and
+writes a balanced binary `dataset/` ready for training (see
+`training/prepare_dataset.py --help` for options such as `--strict`).
+
 Place the extracted folders so the two class directories sit directly under
 `dataset/`, then sanity-check with:
 
