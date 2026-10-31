@@ -1,0 +1,137 @@
+<!DOCTYPE html>
+<html lang="en">
+<head>
+  <meta charset="UTF-8">
+  <meta name="viewport" content="width=device-width, initial-scale=1.0">
+  <title>AI Face Mask Detection System</title>
+  <meta name="description" content="Real-time face-mask detection using OpenCV face detection and a TensorFlow/Keras CNN.">
+  <link rel="stylesheet" href="{{ url_for('static', filename='css/style.css') }}">
+</head>
+<body>
+  <a class="skip-link" href="#main">Skip to content</a>
+
+  <header class="site-header">
+    <div class="brand">
+      <span class="brand-mark" aria-hidden="true">
+        <svg viewBox="0 0 24 24" width="22" height="22" fill="none" stroke="currentColor" stroke-width="1.8" stroke-linecap="round" stroke-linejoin="round"><path d="M12 3l7 3v5c0 4.4-2.9 8.3-7 9.6C7.9 19.3 5 15.4 5 11V6l7-3z"/><path d="M9 11h6M9.5 14h5"/></svg>
+      </span>
+      <div class="brand-text">
+        <h1>AI Face Mask Detection System</h1>
+        <p>Real-time face detection with a TensorFlow/Keras CNN classifier &mdash; Mask or No&nbsp;Mask per face.</p>
+      </div>
+    </div>
+    <div class="status-pills" role="status" aria-live="polite">
+      <span class="pill" id="pill-backend" data-state="unknown">Backend: checking…</span>
+      <span class="pill" id="pill-model" data-state="unknown">Model: checking…</span>
+    </div>
+  </header>
+
+  <div id="model-banner" class="banner banner-warning" hidden>
+    <strong>Trained model not found.</strong>
+    <span id="model-banner-detail">
+      Train one first: <code>python -m training.train --data-dir dataset</code> &mdash; see the README for dataset setup.
+    </span>
+  </div>
+
+  <main id="main" class="layout">
+    <section class="panel preview-panel" aria-labelledby="preview-title">
+      <div class="panel-head">
+        <h2 id="preview-title">Live preview</h2>
+        <div class="controls">
+          <label class="field">
+            <span>Camera mode</span>
+            <select id="mode-select" aria-label="Camera mode">
+              <option value="browser">Browser camera (recommended)</option>
+              <option value="server">Server webcam (OpenCV)</option>
+            </select>
+          </label>
+          <button id="btn-start" class="btn btn-primary" type="button">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><path d="M8 5v14l11-7z"/></svg>
+            Start detection
+          </button>
+          <button id="btn-stop" class="btn btn-ghost" type="button" disabled>
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="currentColor" aria-hidden="true"><rect x="6" y="6" width="12" height="12" rx="1.5"/></svg>
+            Stop
+          </button>
+          <button id="btn-reset" class="btn btn-ghost" type="button">
+            <svg viewBox="0 0 24 24" width="16" height="16" fill="none" stroke="currentColor" stroke-width="2" stroke-linecap="round" aria-hidden="true"><path d="M3 12a9 9 0 1 0 3-6.7"/><path d="M3 4v5h5"/></svg>
+            Reset session
+          </button>
+        </div>
+      </div>
+
+      <div class="stage" id="stage">
+        <video id="video" playsinline muted hidden></video>
+        <canvas id="canvas" hidden></canvas>
+        <img id="stream" class="stream-img" alt="Live detection stream from the server webcam" hidden>
+        <div id="stage-overlay" class="stage-overlay">
+          <div class="stage-message">
+            <svg viewBox="0 0 24 24" width="34" height="34" fill="none" stroke="currentColor" stroke-width="1.6" stroke-linecap="round" stroke-linejoin="round" aria-hidden="true"><path d="M23 7l-7 5 7 5V7z"/><rect x="1" y="5" width="15" height="14" rx="2"/></svg>
+            <p id="stage-overlay-text">Press <strong>Start detection</strong> to open the camera.</p>
+          </div>
+        </div>
+        <div id="live-badge" class="live-badge" hidden><span class="dot" aria-hidden="true"></span> LIVE</div>
+      </div>
+      <p class="stage-note" id="stage-note">Frames are analysed in your browser (or by the OpenCV server camera) and classified one face at a time.</p>
+    </section>
+
+    <section class="panel stats-panel" aria-labelledby="stats-title">
+      <h2 id="stats-title">Current frame</h2>
+      <div class="stat-grid">
+        <div class="stat-card">
+          <span class="stat-label">Faces detected</span>
+          <span class="stat-value" id="stat-faces">0</span>
+        </div>
+        <div class="stat-card stat-mask">
+          <span class="stat-label"><span class="dot dot-mask" aria-hidden="true"></span> Mask</span>
+          <span class="stat-value" id="stat-mask">0</span>
+        </div>
+        <div class="stat-card stat-nomask">
+          <span class="stat-label"><span class="dot dot-nomask" aria-hidden="true"></span> No Mask</span>
+          <span class="stat-value" id="stat-nomask">0</span>
+        </div>
+        <div class="stat-card">
+          <span class="stat-label">Last latency</span>
+          <span class="stat-value stat-small" id="stat-latency">&mdash;</span>
+        </div>
+      </div>
+
+      <h3>Per-face predictions</h3>
+      <ul id="face-list" class="face-list" aria-live="polite">
+        <li class="empty">No faces in view yet.</li>
+      </ul>
+
+      <h3>Session summary</h3>
+      <dl class="summary-grid">
+        <div><dt>Frames analysed</dt><dd id="sum-frames">0</dd></div>
+        <div><dt>Faces seen</dt><dd id="sum-faces">0</dd></div>
+        <div><dt>Mask</dt><dd id="sum-mask">0</dd></div>
+        <div><dt>No Mask</dt><dd id="sum-nomask">0</dd></div>
+        <div class="span2"><dt>Mask ratio</dt><dd id="sum-ratio">&mdash;</dd></div>
+      </dl>
+
+      <h3>Detection log</h3>
+      <div class="table-wrap">
+        <table class="log-table">
+          <thead>
+            <tr><th scope="col">Time</th><th scope="col">Prediction</th><th scope="col">Confidence</th></tr>
+          </thead>
+          <tbody id="log-body">
+            <tr><td colspan="3" class="empty">No detections logged this session.</td></tr>
+          </tbody>
+        </table>
+      </div>
+    </section>
+  </main>
+
+  <footer class="site-footer">
+    <p>
+      Built with Python, OpenCV and TensorFlow/Keras.
+      Camera access stays on your machine; frames are classified by the local Flask server or in your browser tab.
+      See <code>docs/model_card.md</code> for model details and limitations.
+    </p>
+  </footer>
+
+  <script src="{{ url_for('static', filename='js/app.js') }}"></script>
+</body>
+</html>

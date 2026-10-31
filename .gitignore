@@ -1,10 +1,43 @@
-__pycache__/
-*.pyc
-*.pyo
-*.pyd
-.Python
-env/
+# Virtual environments
+.venv/
 venv/
+env/
+ENV/
+
+# Python caches
+__pycache__/
+*.py[cod]
+*.egg-info/
+.pytest_cache/
+.mypy_cache/
+.ruff_cache/
+
+# Local configuration and secrets
 .env
+.env.local
+
+# Datasets are large and individually licensed - never commit them
 dataset/
-*.pkl
+data/
+
+# Trained model artifacts are generated locally by the training pipeline
+models/*.keras
+models/*.h5
+models/*.pb
+models/*.tflite
+models/*.csv
+models/*.json
+models/*.png
+models/*.jpg
+!models/.gitkeep
+
+# Editor / OS noise
+.vscode/
+.idea/
+.DS_Store
+Thumbs.db
+
+# Logs and temporary output
+*.log
+tmp/
+.cache/
