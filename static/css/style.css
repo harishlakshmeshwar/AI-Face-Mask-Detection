@@ -30,6 +30,10 @@ html, body {
   min-height: 100%;
 }
 
+/* Safety net: grids and the log table are bounded explicitly below,
+   this only catches sub-pixel/scrollbar overflow. */
+body { overflow-x: hidden; }
+
 code {
   font-family: var(--mono);
   font-size: 0.92em;
@@ -199,6 +203,9 @@ code {
   border-radius: var(--radius);
   overflow: hidden;
   aspect-ratio: 4 / 3;
+  /* Keep the video inside the viewport on laptop screens: the box keeps its
+     width and caps its height, letterboxing via object-fit: contain. */
+  max-height: min(48vh, 440px);
   display: grid;
   place-items: center;
 }
@@ -409,6 +416,14 @@ code {
   letter-spacing: 0.06em;
   color: var(--text-muted);
 }
+.summary-grid dt .sub {
+  display: block;
+  text-transform: none;
+  letter-spacing: 0;
+  font-size: 0.66rem;
+  font-weight: 400;
+  opacity: 0.8;
+}
 .summary-grid dd {
   margin: 0.15rem 0 0;
   font-size: 1.15rem;
@@ -416,29 +431,55 @@ code {
   font-variant-numeric: tabular-nums;
 }
 
-/* Log table */
-.table-wrap { overflow-x: auto; }
+/* Log table - fixed column layout so Time / Prediction / Confidence never
+   overlap, with vertical + horizontal scrolling for long sessions. */
+.table-wrap {
+  overflow: auto;
+  max-height: 14rem;
+  border: 1px solid var(--border);
+  border-radius: 9px;
+}
 
 .log-table {
   width: 100%;
-  border-collapse: collapse;
+  table-layout: fixed;
+  border-collapse: separate;
+  border-spacing: 0;
   font-size: 0.83rem;
 }
 .log-table th,
 .log-table td {
   text-align: left;
-  padding: 0.45rem 0.55rem;
+  padding: 0.55rem 0.7rem;
   border-bottom: 1px solid var(--border);
   white-space: nowrap;
+  overflow: hidden;
+  text-overflow: ellipsis;
 }
+.log-table th:nth-child(1),
+.log-table td:nth-child(1) { width: 32%; }
+.log-table th:nth-child(2),
+.log-table td:nth-child(2) { width: 38%; }
+.log-table th:nth-child(3),
+.log-table td:nth-child(3) { width: 30%; }
 .log-table th {
+  position: sticky;
+  top: 0;
+  z-index: 1;
+  background: var(--bg-elevated);
   color: var(--text-muted);
   font-weight: 600;
   font-size: 0.72rem;
   text-transform: uppercase;
   letter-spacing: 0.06em;
 }
-.log-table td.empty { text-align: center; color: var(--text-muted); }
+.log-table td.c-time,
+.log-table td.c-conf {
+  font-variant-numeric: tabular-nums;
+}
+.log-table td.c-conf { text-align: right; }
+.log-table th:nth-child(3) { text-align: right; }
+.log-table td.empty { text-align: center; color: var(--text-muted); white-space: normal; }
 .log-table .c-mask { color: var(--mask); font-weight: 600; }
 .log-table .c-nomask { color: var(--nomask); font-weight: 600; }
 
@@ -452,8 +493,28 @@ code {
 .site-footer p { margin: 0; max-width: 100ch; }
 
 /* Responsive */
+
+/* Desktop / laptop: fit video + statistics inside the viewport.
+   The layout gets an explicit height (viewport minus header/footer/padding,
+   with slack for the model banner); panels scroll internally instead of
+   pushing content under the Windows taskbar or below the fold. */
+@media (min-width: 981px) and (min-height: 640px) {
+  .layout {
+    height: calc(100vh - 15rem);
+    height: calc(100dvh - 15rem);
+    align-items: stretch;
+    padding-bottom: 1.25rem;
+  }
+  .panel {
+    min-height: 0;
+    min-width: 0;
+    overflow-y: auto;
+    overflow-x: hidden;
+  }
+}
+
 @media (max-width: 980px) {
-  .layout { grid-template-columns: 1fr; }
+  .layout { grid-template-columns: minmax(0, 1fr); }
 }
 
 @media (max-width: 640px) {

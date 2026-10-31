@@ -93,6 +93,47 @@ def test_events_endpoints(client):
     assert reset.status_code == 200
     events = client.get("/api/events").get_json()
     assert events["summary"]["total_detections"] == 0
+    assert events["summary"]["mask_ratio"] is None  # zero detections, no division
+
+
+def test_detect_session_counts_face_once_across_frames(client, monkeypatch):
+    """Two frames showing the same face: 2 frames analysed, 1 face counted."""
+    app = client.application
+    classifier = app.extensions["session"].classifier
+    monkeypatch.setattr(classifier.detector, "detect", lambda frame: [(5, 5, 30, 30)])
+
+    first = client.post("/api/detect", json={"image": jpeg_data_url()}).get_json()
+    second = client.post("/api/detect", json={"image": jpeg_data_url()}).get_json()
+
+    session = second["session"]
+    assert session["frames"] == 2
+    assert session["faces"] == 1  # NOT 2 - the same face must not double-count
+    assert session["mask"] == 1
+    assert session["no_mask"] == 0
+    assert session["mask"] + session["no_mask"] == session["faces"]
+    # Per-frame counts stay per-frame: both frames saw one face.
+    assert second["counts"]["faces"] == 1
+    # The log entry carries the exact same confidence as the prediction panel.
+    assert session["events"]
+    assert session["events"][0]["confidence"] == second["faces"][0]["confidence"]
+
+
+def test_detect_session_ratio_and_reset(client, monkeypatch):
+    app = client.application
+    classifier = app.extensions["session"].classifier
+    monkeypatch.setattr(classifier.detector, "detect", lambda frame: [(5, 5, 30, 30)])
+
+    client.post("/api/detect", json={"image": jpeg_data_url()})
+    payload = client.post("/api/detect", json={"image": jpeg_data_url()}).get_json()
+    assert payload["session"]["ratio"] is not None
+    assert 0.0 <= payload["session"]["ratio"] <= 1.0
+
+    client.post("/api/events/reset")
+    summary = client.get("/api/events").get_json()["summary"]
+    assert summary["total_detections"] == 0
+    assert summary["frames"] == 0
+    assert summary["mask_ratio"] is None
+    assert summary["events"] == []
 
 
 def test_camera_stop_when_never_started(client):
@@ -106,6 +147,10 @@ def test_detections_endpoint_defaults(client):
     payload = response.get_json()
     assert payload["camera_active"] is False
     assert payload["counts"]["faces"] == 0
+    session = payload["session"]
+    assert session["frames"] == 0
+    assert session["faces"] == 0
+    assert session["ratio"] is None
 
 
 def test_unknown_api_route_returns_json_404(client):

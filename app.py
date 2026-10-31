@@ -21,7 +21,7 @@ import base64
 import threading
 import time
 from collections import deque
-from typing import Any, Dict, Optional
+from typing import Any, Dict, List, Optional
 
 import cv2
 import numpy as np
@@ -35,7 +35,117 @@ from src.inference import MaskClassifier, ModelNotFoundError
 from src.preprocessing import InvalidImageError
 
 MAX_EVENT_HISTORY = config.EVENT_HISTORY_LIMIT
+SESSION_EVENT_PREVIEW = 50
 JPEG_QUALITY = 80
+
+
+def bbox_iou(box_a, box_b) -> float:
+    """Intersection-over-union of two ``[x, y, w, h]`` boxes."""
+    ax, ay, aw, ah = (float(v) for v in box_a)
+    bx, by, bw, bh = (float(v) for v in box_b)
+    inter_w = max(0.0, min(ax + aw, bx + bw) - max(ax, bx))
+    inter_h = max(0.0, min(ay + ah, by + bh) - max(ay, by))
+    intersection = inter_w * inter_h
+    union = aw * ah + bw * bh - intersection
+    return intersection / union if union > 0 else 0.0
+
+
+class DetectionTracker:
+    """Counts distinct face detections across consecutive video frames.
+
+    Without this, every processed frame would add its faces to the session
+    totals, so one person sitting in front of the camera would inflate
+    "Faces seen" by the frame rate. A face is counted:
+
+    * once when it first appears (IoU-matched to an existing track),
+    * again if its classification flips (mask -> no mask or back),
+    * again after it has left the view for more than ``MAX_MISSED_FRAMES``.
+
+    Totals always satisfy ``with_mask + without_mask == faces``, which keeps
+    the mask ratio (mask detections / total face detections) well defined.
+    """
+
+    IOU_THRESHOLD = 0.25
+    MAX_MISSED_FRAMES = 3
+
+    def __init__(self) -> None:
+        self.reset()
+
+    def reset(self) -> None:
+        self._tracks: List[Dict[str, Any]] = []
+        self._next_id = 1
+        self.frames = 0
+        self.faces = 0
+        self.with_mask = 0
+        self.without_mask = 0
+
+    def update(self, detections: List[Dict[str, Any]]) -> List[Dict[str, Any]]:
+        """Process one analysed frame; return newly counted detection events."""
+        self.frames += 1
+        events: List[Dict[str, Any]] = []
+
+        # Greedy IoU matching between existing tracks and this frame's faces.
+        pairs = []
+        for track_index, track in enumerate(self._tracks):
+            for det_index, detection in enumerate(detections):
+                score = bbox_iou(track["bbox"], detection["bbox"])
+                if score >= self.IOU_THRESHOLD:
+                    pairs.append((score, track_index, det_index))
+        pairs.sort(key=lambda item: (-item[0], item[1], item[2]))
+
+        matched_tracks = set()
+        matched_dets = set()
+        preexisting = len(self._tracks)
+        for _score, track_index, det_index in pairs:
+            if track_index in matched_tracks or det_index in matched_dets:
+                continue
+            matched_tracks.add(track_index)
+            matched_dets.add(det_index)
+            track = self._tracks[track_index]
+            detection = detections[det_index]
+            track["missed"] = 0
+            if detection.get("label") != track["label"]:
+                # Same face, new classification: count it as a detection event.
+                track["label"] = detection.get("label")
+                events.append(self._count(detection, track["id"]))
+            track["bbox"] = list(detection["bbox"])
+
+        # Faces never seen before start a new track (and a new count).
+        for det_index, detection in enumerate(detections):
+            if det_index in matched_dets:
+                continue
+            track = {
+                "id": self._next_id,
+                "bbox": list(detection["bbox"]),
+                "label": detection.get("label"),
+                "missed": 0,
+            }
+            self._next_id += 1
+            self._tracks.append(track)
+            events.append(self._count(detection, track["id"]))
+
+        # Age tracks that were not matched this frame; drop long-gone faces.
+        for track_index in range(preexisting):
+            if track_index not in matched_tracks:
+                self._tracks[track_index]["missed"] += 1
+        self._tracks = [
+            track for track in self._tracks if track["missed"] <= self.MAX_MISSED_FRAMES
+        ]
+        return events
+
+    def _count(self, detection: Dict[str, Any], track_id: int) -> Dict[str, Any]:
+        self.faces += 1
+        if detection.get("label") == "with_mask":
+            self.with_mask += 1
+        else:
+            self.without_mask += 1
+        return {
+            "track_id": track_id,
+            "label": detection.get("label"),
+            "display_label": detection.get("display_label", detection.get("label")),
+            "confidence": detection.get("confidence"),
+            "bbox": list(detection.get("bbox", [])),
+        }
 
 
 def decode_base64_frame(payload: str) -> np.ndarray:
@@ -72,6 +182,8 @@ class DetectionSession:
             "latency_ms": 0.0,
             "timestamp": None,
         }
+        self.tracker = DetectionTracker()
+        self._stats_lock = threading.Lock()
         self.events = deque(maxlen=MAX_EVENT_HISTORY)
 
     # ----------------------------------------------------------- model state
@@ -79,39 +191,59 @@ class DetectionSession:
     def model_loaded(self) -> bool:
         return self.classifier.is_loaded
 
-    # ------------------------------------------------------------- events
-    def record_events(self, detections, counts, latency_ms: float) -> None:
-        if not detections:
-            return
-        timestamp = time.strftime("%Y-%m-%d %H:%M:%S")
-        for detection in detections:
-            self.events.appendleft(
-                {
-                    "time": timestamp,
-                    "label": detection["label"],
-                    "display_label": detection["display_label"],
-                    "confidence": detection["confidence"],
-                    "bbox": detection["bbox"],
-                    "source": "server_camera",
-                    "latency_ms": latency_ms,
-                }
-            )
+    # ------------------------------------------------------------- statistics
+    def track(
+        self, detections: List[Dict[str, Any]], latency_ms: float = 0.0, source: str = "api"
+    ) -> None:
+        """Account for one analysed frame.
+
+        The tracker decides which detections are *new* (first appearance or a
+        flipped classification); only those become counted events, so
+        consecutive frames showing the same face never double-count.
+        """
+        with self._stats_lock:
+            new_events = self.tracker.update(detections)
+            if not new_events:
+                return
+            stamp = time.strftime("%Y-%m-%d %H:%M:%S")
+            for event in new_events:
+                event["time"] = stamp[11:]  # HH:MM:SS for the detection log
+                event["timestamp"] = stamp
+                event["source"] = source
+                event["latency_ms"] = latency_ms
+                self.events.appendleft(event)
+
+    def session_snapshot(self) -> Dict[str, Any]:
+        """Session-wide statistics for the dashboard (and API consumers)."""
+        with self._stats_lock:
+            tracker = self.tracker
+            return {
+                "frames": tracker.frames,
+                "faces": tracker.faces,
+                "mask": tracker.with_mask,
+                "no_mask": tracker.without_mask,
+                # None (not 0) when nothing was seen: callers must not divide.
+                "ratio": round(tracker.with_mask / tracker.faces, 4)
+                if tracker.faces
+                else None,
+                "events": list(self.events)[:SESSION_EVENT_PREVIEW],
+            }
 
     def session_summary(self) -> Dict[str, Any]:
-        events = list(self.events)
-        total = len(events)
-        with_mask = sum(1 for event in events if event["label"] == "with_mask")
-        without_mask = total - with_mask
+        snapshot = self.session_snapshot()
         return {
-            "total_detections": total,
-            "with_mask": with_mask,
-            "without_mask": without_mask,
-            "mask_ratio": round(with_mask / total, 4) if total else None,
-            "events": events[:50],
+            "frames": snapshot["frames"],
+            "total_detections": snapshot["faces"],
+            "with_mask": snapshot["mask"],
+            "without_mask": snapshot["no_mask"],
+            "mask_ratio": snapshot["ratio"],
+            "events": snapshot["events"],
         }
 
     def reset_events(self) -> None:
-        self.events.clear()
+        with self._stats_lock:
+            self.tracker.reset()
+            self.events.clear()
 
     # ------------------------------------------------------- server camera
     def start_camera(self) -> Dict[str, Any]:
@@ -202,7 +334,7 @@ class DetectionSession:
                     "latency_ms": latency,
                     "timestamp": time.strftime("%Y-%m-%d %H:%M:%S"),
                 }
-            self.record_events(detections, counts, latency)
+            self.track(detections, latency, source="server_camera")
 
             elapsed = time.time() - started
             if elapsed < interval:
@@ -218,6 +350,7 @@ class DetectionSession:
         payload["camera_active"] = self.camera_active
         payload["camera_error"] = self.camera_error
         payload["model_loaded"] = self.model_loaded
+        payload["session"] = self.session_snapshot()
         return payload
 
 
@@ -304,13 +437,14 @@ def create_app(
         except InvalidImageError as exc:
             return jsonify({"status": "error", "message": str(exc)}), 400
 
-        session.record_events(detections, counts, latency)
+        session.track(detections, latency, source="browser_camera")
         return jsonify(
             {
                 "status": "success",
                 "faces": detections,
                 "counts": counts,
                 "latency_ms": latency,
+                "session": session.session_snapshot(),
             }
         )
 
