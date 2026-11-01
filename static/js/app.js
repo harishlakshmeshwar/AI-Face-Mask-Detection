@@ -13,6 +13,7 @@
     btnReset: document.getElementById("btn-reset"),
     stageOverlay: document.getElementById("stage-overlay"),
     stageOverlayText: document.getElementById("stage-overlay-text"),
+    stageNote: document.getElementById("stage-note"),
     video: document.getElementById("video"),
     canvas: document.getElementById("canvas"),
     stream: document.getElementById("stream"),
