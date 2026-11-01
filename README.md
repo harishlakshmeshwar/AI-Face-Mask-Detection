@@ -10,9 +10,9 @@ confidence score.
 > TensorFlow/Keras training and evaluation pipeline for mask classification,
 > with reproducible preprocessing and model deployment instructions.
 
-> **Repository note:** this project lives in the existing GitHub repository
-> `NEXUS-AI-FaceRecognition`. The code, README and structure now implement the
-> face-mask system; the repository name itself was not changed.
+> **Repository note:** this project lives in the GitHub repository
+> [`AI-Face-Mask-Detection`](https://github.com/harishlakshmeshwar/AI-Face-Mask-Detection)
+> (formerly `NEXUS-AI-FaceRecognition`; GitHub redirects the old URL).
 
 ---
 
@@ -143,8 +143,8 @@ The preprocessing contract is shared between training and inference in
 ## Installation (Windows)
 
 ```bat
-git clone https://github.com/harishlakshmeshwar/NEXUS-AI-FaceRecognition.git
-cd NEXUS-AI-FaceRecognition
+git clone https://github.com/harishlakshmeshwar/AI-Face-Mask-Detection.git
+cd AI-Face-Mask-Detection
 
 python -m venv .venv
 .venv\Scripts\activate
