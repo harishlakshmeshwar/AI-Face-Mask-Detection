@@ -386,6 +386,18 @@ def create_app(
 
     atexit.register(shutdown_camera)
 
+    @app.after_request
+    def no_stale_assets(response: Response) -> Response:
+        """Local dashboard: never let the browser reuse an old page/script.
+
+        A stale tab running outdated JS is a real failure mode here (the UI
+        evolves with the API), so HTML/JS/CSS are always revalidated.
+        """
+        mimetype = response.mimetype or ""
+        if mimetype in ("text/html", "application/javascript", "text/css"):
+            response.headers["Cache-Control"] = "no-store, must-revalidate"
+        return response
+
     # ------------------------------------------------------------- pages
     @app.route("/")
     def index():

@@ -255,6 +255,7 @@ code {
   padding: 0.25rem 0.6rem;
   border-radius: 999px;
 }
+.live-badge[hidden] { display: none; }
 .live-badge .dot {
   width: 8px;
   height: 8px;
@@ -262,6 +263,8 @@ code {
   background: var(--nomask);
   animation: pulse 1.4s ease-in-out infinite;
 }
+
+.preview-badge[hidden] { display: none; }
 
 .preview-badge {
   position: absolute;
